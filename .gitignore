@@ -1,0 +1,80 @@
+# Node.js
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.pnpm-store/
+.npm/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build artifacts
+dist/
+build/
+out/
+.next/ # For Next.js projects
+.nuxt/ # For Nuxt.js projects
+.vite/ # For Vite projects
+.parcel-cache/ # For Parcel bundler
+
+# TypeScript/JavaScript compiled files (if not in dist/build/)
+*.js
+*.js.map
+*.d.ts
+!*.d.ts.map # Keep .d.ts.map for source maps of declaration files if needed
+
+# Dependency directories
+coverage/
+.nyc_output/
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Local development files
+.DS_Store # macOS specific
+Thumbs.db # Windows specific
+.vscode/ # VS Code settings (often good to share, but can be ignored if personal)
+!.vscode/extensions.json # Usually keep this
+!.vscode/settings.json # Usually keep this
+!.vscode/tasks.json # Usually keep this
+!.vscode/launch.json # Usually keep this
+.idea/ # IntelliJ/WebStorm project files
+*.iml # IntelliJ module files
+
+# Test artifacts
+junit.xml
+test-results/
+
+# Editor specific (if not covered by .vscode or .idea)
+*.sublime-project
+*.sublime-workspace
+.project
+.classpath
+.settings/
+
+# npm package manager cache and installer artifacts
+.npmrc # If it contains sensitive configs
+npm-shrinkwrap.json
+
+# Yarn cache
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.yml
+.yarnclean
+
+# Other miscellaneous
+*.bak
+*.swp
+*.swo
+*.tmp
