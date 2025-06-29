@@ -212,12 +212,14 @@ router.post('/location/driver/:driverId', async (req, res) => {
     if (!lat || !lng) {
       return res.status(400).json({ error: 'Missing lat/lng' });
     }
-    const payload = JSON.stringify({ lat, lng, ts: Date.now() });
     
+    const timestamp = Date.now();
+    const payload = JSON.stringify({ lat, lng, ts: timestamp });
     await redis.hset('driver_locations', driverId, payload);
     await redis.publish('driver_location', payload);
     await redis.sadd('active_drivers', driverId);
-    
+    await redis.set(`driver_last_seen:${driverId}`, timestamp.toString(), 'EX', 15);
+
     res.json({ message: 'Location stored and published' });
   } catch (err: any) {
     console.error('Location update failed:', err);
@@ -241,7 +243,13 @@ router.get('/drivers/nearby', async (req, res) => {
     const allDrivers = await redis.smembers('active_drivers');
     const results = [];
 
-    for (const driverId of allDrivers) {
+  for (const driverId of allDrivers) {
+      const lastSeen = await redis.get(`driver_last_seen:${driverId}`);
+      if (!lastSeen || Date.now() - parseInt(lastSeen) > 15_000) {
+        await redis.srem('active_drivers', driverId);
+        continue;
+      }
+
       const raw = await redis.hget('driver_locations', driverId);
       if (!raw) continue;
       const loc = JSON.parse(raw);
