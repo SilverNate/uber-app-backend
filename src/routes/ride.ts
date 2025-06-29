@@ -279,4 +279,45 @@ function toRad(deg: number): number {
   return (deg * Math.PI) / 180;
 }
 
+router.get('/fare/estimate', async (req, res) => {
+  try {
+    const { origin_lat, origin_lng, dest_lat, dest_lng } = req.query;
+    if (!origin_lat || !origin_lng || !dest_lat || !dest_lng) {
+      return res.status(400).json({ error: 'Missing coordinates' });
+    }
+
+    const distance = haversine(
+      parseFloat(origin_lat as string),
+      parseFloat(origin_lng as string),
+      parseFloat(dest_lat as string),
+      parseFloat(dest_lng as string)
+    );
+
+    const baseFare = 1;      // USD
+    const perKm = 0.5;        // USD/km
+    const fare = baseFare + distance * perKm;
+
+    res.json({ distance_km: distance, estimated_fare: fare.toFixed(2) });
+  } catch (err: any) {
+    console.error('Fare estimate failed:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/cancel/:rideId', async (req, res) => {
+  try {
+    const rideId = req.params.rideId;
+    const result = await pool.query('SELECT status FROM rides WHERE id = $1', [rideId]);
+    const ride = result.rows[0];
+    if (!ride) return res.status(404).json({ error: 'Ride not found' });
+    if (ride.status === 'completed') return res.status(400).json({ error: 'Ride already completed' });
+
+    await pool.query('UPDATE rides SET status = $1 WHERE id = $2', ['cancelled', rideId]);
+    res.json({ message: 'Ride cancelled' });
+  } catch (err: any) {
+    console.error('Cancel ride failed:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;
