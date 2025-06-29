@@ -2,6 +2,7 @@ import express from 'express';
 import type { Request, Response } from 'express';
 import { pool } from '../db/pool';
 import Redis from 'ioredis';
+import jwt from 'jsonwebtoken';
 
 
 const router = express.Router();
@@ -9,6 +10,20 @@ const pub = new Redis({ host: process.env.REDIS_HOST, port: Number(process.env.R
 const sub = new Redis({ host: process.env.REDIS_HOST, port: Number(process.env.REDIS_PORT) });
 const redis = new Redis({ host: process.env.REDIS_HOST, port: Number(process.env.REDIS_PORT) });
 
+function isAdmin(req: Request, res: Response, next: Function) {
+  const auth = req.headers.authorization;
+  if (!auth || !auth.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Missing or invalid token' });
+  }
+  try {
+    const token = auth.split(' ')[1];
+    const payload: any = jwt.verify(token, process.env.JWT_SECRET!);
+    if (payload.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+    next();
+  } catch {
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+}
 
 router.post('/request', async (req: Request, res: Response) => {
   try {
@@ -318,6 +333,83 @@ router.post('/cancel/:rideId', async (req, res) => {
     console.error('Cancel ride failed:', err);
     res.status(500).json({ error: err.message });
   }
+});
+
+router.post('/charge/:rideId', async (req, res) => {
+  try {
+    const rideId = req.params.rideId;
+    const result = await pool.query('SELECT * FROM rides WHERE id = $1', [rideId]);
+    const ride = result.rows[0];
+    if (!ride) return res.status(404).json({ error: 'Ride not found' });
+    if (ride.status !== 'completed') return res.status(400).json({ error: 'Ride not completed yet' });
+
+    const distance = haversine(ride.origin_lat, ride.origin_lng, ride.dest_lat, ride.dest_lng);
+    const baseFare = 1;
+    const perKm = 0.5;
+    const total = baseFare + distance * perKm;
+
+    await pool.query('UPDATE rides SET fare = $1 WHERE id = $2', [total, rideId]);
+    await pool.query('INSERT INTO earnings (driver_id, ride_id, amount) VALUES ($1, $2, $3)', [ride.driver_id, rideId, total]);
+
+    res.json({ charged: total.toFixed(2), ride_id: rideId });
+  } catch (err: any) {
+    console.error('Charge failed:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/earnings/driver/:driverId', async (req, res) => {
+  try {
+    const driverId = req.params.driverId;
+    const result = await pool.query(
+      'SELECT COUNT(*) AS total_rides, SUM(amount)::numeric(10,2) AS total_earned FROM earnings WHERE driver_id = $1',
+      [driverId]
+    );
+    res.json({
+      driver_id: driverId,
+      total_rides: parseInt(result.rows[0].total_rides, 10),
+      total_earned: result.rows[0].total_earned || '0.00'
+    });
+  } catch (err: any) {
+    console.error('Earnings summary failed:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/admin/dashboard', isAdmin, async (req, res) => {
+  try {
+    const [rides, earnings, drivers] = await Promise.all([
+      pool.query('SELECT COUNT(*) AS total_rides FROM rides'),
+      pool.query('SELECT SUM(amount)::numeric(10,2) AS total_revenue FROM earnings'),
+      pool.query('SELECT COUNT(DISTINCT driver_id) AS total_drivers FROM rides')
+    ]);
+
+    res.json({
+      total_rides: parseInt(rides.rows[0].total_rides, 10),
+      total_revenue: earnings.rows[0].total_revenue || '0.00',
+      total_drivers: parseInt(drivers.rows[0].total_drivers, 10)
+    });
+  } catch (err: any) {
+    console.error('Dashboard error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/admin/login', async (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Missing username or password' });
+  }
+
+  // Static example credentials (use DB in production)
+  const ADMIN_USER = process.env.ADMIN_USER || 'admin';
+  const ADMIN_PASS = process.env.ADMIN_PASS || 'secret';
+
+  if (username === ADMIN_USER && password === ADMIN_PASS) {
+    const token = jwt.sign({ role: 'admin', username }, process.env.JWT_SECRET!, { expiresIn: '1d' });
+    return res.json({ token });
+  }
+  return res.status(401).json({ error: 'Invalid credentials' });
 });
 
 export default router;
