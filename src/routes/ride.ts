@@ -225,4 +225,50 @@ router.post('/location/driver/:driverId', async (req, res) => {
   }
 });
 
+router.get('/drivers/nearby', async (req, res) => {
+  try {
+    const { lat, lng, radius } = req.query;
+    if (!lat || !lng || !radius) return res.status(400).json({ error: 'Missing lat/lng/radius' });
+
+    const centerLat = parseFloat(lat as string);
+    const centerLng = parseFloat(lng as string);
+    const kmRadius = parseFloat(radius as string);
+    const cacheKey = `nearby:${centerLat.toFixed(3)}:${centerLng.toFixed(3)}:${kmRadius}`;
+
+    const cached = await redis.get(cacheKey);
+    if (cached) return res.json(JSON.parse(cached));
+
+    const allDrivers = await redis.smembers('active_drivers');
+    const results = [];
+
+    for (const driverId of allDrivers) {
+      const raw = await redis.hget('driver_locations', driverId);
+      if (!raw) continue;
+      const loc = JSON.parse(raw);
+      const dist = haversine(centerLat, centerLng, loc.lat, loc.lng);
+      if (dist <= kmRadius) {
+        results.push({ driverId, lat: loc.lat, lng: loc.lng, distance_km: dist });
+      }
+    }
+
+    await redis.setex(cacheKey, 10, JSON.stringify(results));
+    res.json(results);
+  } catch (err: any) {
+    console.error('Nearby driver lookup failed:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+function haversine(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371; // km
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function toRad(deg: number): number {
+  return (deg * Math.PI) / 180;
+}
+
 export default router;
