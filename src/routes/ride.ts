@@ -191,14 +191,21 @@ router.get('/location/driver/:driverId', async (req, res) => {
     const driverId = req.params.driverId;
     const data = await redis.hget('driver_locations', driverId);
     if (!data) return res.status(404).json({ error: 'Location not found' });
-    res.json(JSON.parse(data));
+    
+    const location = JSON.parse(data);
+    const isStale = Date.now() - location.ts > 10_000;
+    if (isStale) {
+      return res.status(410).json({ error: 'Driver location is stale' });
+    }
+
+    res.json(location);
   } catch (err: any) {
     console.error('Fetch location error:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-router.post('/location/:driverId', async (req, res) => {
+router.post('/location/driver/:driverId', async (req, res) => {
   try {
     const { lat, lng } = req.body;
     const driverId = req.params.driverId;
@@ -206,8 +213,11 @@ router.post('/location/:driverId', async (req, res) => {
       return res.status(400).json({ error: 'Missing lat/lng' });
     }
     const payload = JSON.stringify({ lat, lng, ts: Date.now() });
+    
     await redis.hset('driver_locations', driverId, payload);
     await redis.publish('driver_location', payload);
+    await redis.sadd('active_drivers', driverId);
+    
     res.json({ message: 'Location stored and published' });
   } catch (err: any) {
     console.error('Location update failed:', err);
