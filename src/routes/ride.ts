@@ -415,7 +415,7 @@ router.post('/admin/login', async (req, res) => {
 router.get('/admin/payout/:driverId', isAdmin, async (req, res) => {
   try {
     const { driverId } = req.params;
-    const { paid, from, to } = req.query;
+    const { paid, from, to, format } = req.query;
     const conditions = ['driver_id = $1'];
     const values: any[] = [driverId];
 
@@ -435,6 +435,15 @@ router.get('/admin/payout/:driverId', isAdmin, async (req, res) => {
 
     const query = `SELECT * FROM earnings WHERE ${conditions.join(' AND ')}`;
     const result = await pool.query(query, values);
+
+    if (format === 'csv') {
+      const headers = Object.keys(result.rows[0] || {}).join(',');
+      const csv = [headers, ...result.rows.map(r => Object.values(r).join(','))].join('\n');
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="${driverId}_payout.csv"`);
+      return res.send(csv);
+    }
+
     res.json(result.rows);
   } catch (err: any) {
     console.error('Payout preview error:', err);
@@ -453,6 +462,100 @@ router.post('/admin/payout/:driverId', isAdmin, async (req, res) => {
     res.json({ message: `Marked ${result.rowCount} records as paid`, paid: result.rows });
   } catch (err: any) {
     console.error('Payout process error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/dashboard/driver/:driverId', async (req, res) => {
+  try {
+    const { driverId } = req.params;
+    const { page = '1', limit = '5', status, from, to } = req.query;
+    const offset = (parseInt(page as string) - 1) * parseInt(limit as string);
+
+    const filters = ['driver_id = $1'];
+    const values: any[] = [driverId];
+
+    if (status) {
+      filters.push(`status = $${values.length + 1}`);
+      values.push(status);
+    }
+    if (from) {
+      filters.push(`created_at >= $${values.length + 1}`);
+      values.push(from);
+    }
+    if (to) {
+      filters.push(`created_at <= $${values.length + 1}`);
+      values.push(to);
+    }
+
+    const query = `SELECT id, status, origin_lat, origin_lng, dest_lat, dest_lng, fare, created_at
+                   FROM rides WHERE ${filters.join(' AND ')}
+                   ORDER BY created_at DESC LIMIT $${values.length + 1} OFFSET $${values.length + 2}`;
+    values.push(limit, offset);
+
+    const [earnings, rides, current, recent] = await Promise.all([
+      pool.query('SELECT SUM(amount)::numeric(10,2) AS total_earned FROM earnings WHERE driver_id = $1', [driverId]),
+      pool.query("SELECT COUNT(*) AS completed_rides FROM rides WHERE driver_id = $1 AND status = 'completed'", [driverId]),
+      pool.query("SELECT id, status FROM rides WHERE driver_id = $1 AND status IN ('requested', 'accepted', 'enroute') ORDER BY created_at DESC LIMIT 1", [driverId]),
+      pool.query(query, values)
+    ]);
+
+    res.json({
+      driver_id: driverId,
+      completed_rides: parseInt(rides.rows[0].completed_rides || '0', 10),
+      total_earned: earnings.rows[0].total_earned || '0.00',
+      current_ride: current.rows[0] || null,
+      recent_rides: recent.rows
+    });
+  } catch (err: any) {
+    console.error('Driver dashboard error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/dashboard/rider/:riderId', async (req, res) => {
+  try {
+    const { riderId } = req.params;
+    const { page = '1', limit = '5', status, from, to } = req.query;
+    const offset = (parseInt(page as string) - 1) * parseInt(limit as string);
+
+    const filters = ['rider_id = $1'];
+    const values: any[] = [riderId];
+
+    if (status) {
+      filters.push(`status = $${values.length + 1}`);
+      values.push(status);
+    }
+    if (from) {
+      filters.push(`created_at >= $${values.length + 1}`);
+      values.push(from);
+    }
+    if (to) {
+      filters.push(`created_at <= $${values.length + 1}`);
+      values.push(to);
+    }
+
+    const query = `SELECT id, status, origin_lat, origin_lng, dest_lat, dest_lng, fare, created_at
+                   FROM rides WHERE ${filters.join(' AND ')}
+                   ORDER BY created_at DESC LIMIT $${values.length + 1} OFFSET $${values.length + 2}`;
+    values.push(limit, offset);
+
+    const [rides, ratings, current, recent] = await Promise.all([
+      pool.query("SELECT COUNT(*) AS completed_rides FROM rides WHERE rider_id = $1 AND status = 'completed'", [riderId]),
+      pool.query("SELECT COUNT(*) AS rated_rides FROM rides WHERE rider_id = $1 AND rating IS NOT NULL", [riderId]),
+      pool.query("SELECT id, driver_id, status FROM rides WHERE rider_id = $1 AND status IN ('requested','accepted','enroute') ORDER BY created_at DESC LIMIT 1", [riderId]),
+      pool.query(query, values)
+    ]);
+
+    res.json({
+      rider_id: riderId,
+      completed_rides: parseInt(rides.rows[0].completed_rides || '0', 10),
+      rated_rides: parseInt(ratings.rows[0].rated_rides || '0', 10),
+      current_ride: current.rows[0] || null,
+      recent_rides: recent.rows
+    });
+  } catch (err: any) {
+    console.error('Rider dashboard error:', err);
     res.status(500).json({ error: err.message });
   }
 });
