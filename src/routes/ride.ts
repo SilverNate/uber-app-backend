@@ -412,4 +412,33 @@ router.post('/admin/login', async (req, res) => {
   return res.status(401).json({ error: 'Invalid credentials' });
 });
 
+router.get('/admin/payout/:driverId', isAdmin, async (req, res) => {
+  try {
+    const { driverId } = req.params;
+    const result = await pool.query(
+      'SELECT * FROM earnings WHERE driver_id = $1 AND paid = false',
+      [driverId]
+    );
+    res.json(result.rows);
+  } catch (err: any) {
+    console.error('Payout preview error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/admin/payout/:driverId', isAdmin, async (req, res) => {
+  try {
+    const { driverId } = req.params;
+    const result = await pool.query(
+      `UPDATE earnings SET paid = true, paid_at = NOW()
+       WHERE driver_id = $1 AND paid = false RETURNING *`,
+      [driverId]
+    );
+    res.json({ message: `Marked ${result.rowCount} records as paid`, paid: result.rows });
+  } catch (err: any) {
+    console.error('Payout process error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;
