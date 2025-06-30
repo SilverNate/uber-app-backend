@@ -415,10 +415,26 @@ router.post('/admin/login', async (req, res) => {
 router.get('/admin/payout/:driverId', isAdmin, async (req, res) => {
   try {
     const { driverId } = req.params;
-    const result = await pool.query(
-      'SELECT * FROM earnings WHERE driver_id = $1 AND paid = false',
-      [driverId]
-    );
+    const { paid, from, to } = req.query;
+    const conditions = ['driver_id = $1'];
+    const values: any[] = [driverId];
+
+    if (paid === 'true' || paid === 'false') {
+      conditions.push(`paid = $${values.length + 1}`);
+      values.push(paid === 'true');
+    }
+
+    if (from) {
+      conditions.push(`created_at >= $${values.length + 1}`);
+      values.push(from);
+    }
+    if (to) {
+      conditions.push(`created_at <= $${values.length + 1}`);
+      values.push(to);
+    }
+
+    const query = `SELECT * FROM earnings WHERE ${conditions.join(' AND ')}`;
+    const result = await pool.query(query, values);
     res.json(result.rows);
   } catch (err: any) {
     console.error('Payout preview error:', err);
