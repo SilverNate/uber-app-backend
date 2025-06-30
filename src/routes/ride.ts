@@ -560,4 +560,11 @@ router.get('/dashboard/rider/:riderId', async (req, res) => {
   }
 });
 
+// still not tested
+router.get('/rides/:rideId/track', async (req, res) => {
+  const { rideId } = req.params;
+  const points = await redis.lrange(`ride:${rideId}:track`, 0, -1);
+  res.json(points.map((p) => JSON.parse(p)));
+});
+
 export default router;
