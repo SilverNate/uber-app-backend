@@ -1,27 +1,22 @@
-import express from 'express';
-import dotenv from 'dotenv';
-import authRoutes from './routes/auth';
-import './redis/pubsub';
-import rideRoutes from './routes/ride';
+import http from 'http';
+import app from './app';
+import { initSocket } from './socket';
 
-dotenv.config();
+const server = http.createServer(app);
 
-const app = express();
-app.use(express.json());
+// Initialize WebSocket
+initSocket(server);
 
-app.use('/auth', authRoutes);
-app.use('/rides', rideRoutes);
+const port = process.env.PORT || 3000;
+server.listen(port, () => {
+  console.log(`Server running on port ${port}`);
+});
 
-
+// Safety handlers
 process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception:', err);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-});
-
-const port = process.env.PORT || 3000;
-app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
 });
